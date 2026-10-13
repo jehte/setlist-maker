@@ -193,6 +193,9 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 .sheet li .sn { font-family: var(--font-body); font-weight: 500; font-size: .36em; color: var(--ink-soft); text-transform: none; padding-left: .4em; }
 .sheet .empty { font-family: var(--font-body); font-size: .42em; color: var(--ink-soft); text-align: center; }
 
+.lock-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.lock-notice svg { color: var(--muted); }
+
 .signin { display: grid; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .signin-form { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: end; }
 .signin-form .line-input { flex: 1 1 200px; width: auto; }
@@ -236,6 +239,11 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
         </form>
         <p class="note" id="signinMsg" role="status"></p>
       </div>
+      <p class="note strong lock-notice" id="lockNotice" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        This gig has been played, so its setlist is locked.
+        <button class="link u" id="unlockBtn" type="button">Unlock to edit</button>
+      </p>
       <p class="note" id="readOnlyNotice" hidden>You can view these setlists but not change them. Ask the owner for edit access.</p>
 
       <fieldset class="editor-fs" id="editorFs">
@@ -680,12 +688,20 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   });
 
   function setReadOnly(v) { readOnly = v; applyLock(); renderStatus(); checkMigrate(); }
+  // Played gigs (date before today) open locked so their setlist isn't changed by accident.
+  // "Unlock to edit" lasts until another gig is opened; editing a gig's own date keeps it open.
+  const unlocked = new Set();
+  const isPlayedLocked = g => !!(g && g.date && g.date < todayIso() && !unlocked.has(g.id));
   function applyLock() {
     const locked = readOnly || connecting;
-    $('editorFs').disabled = locked;
-    ['newGig', 'dupGig', 'delGig'].forEach(id => { $(id).disabled = locked; });
+    const played = !locked && isPlayedLocked(gig());
+    $('editorFs').disabled = locked || played;
+    ['newGig', 'dupGig'].forEach(id => { $(id).disabled = locked; });
+    $('delGig').disabled = locked || played;
     $('readOnlyNotice').hidden = !readOnly;
+    $('lockNotice').hidden = !played;
   }
+  $('unlockBtn').addEventListener('click', () => { unlocked.add(gig().id); applyLock(); $('venue').focus(); });
   function renderStatus() {
     const s = $('status');
     s.classList.toggle('shared', mode === 'shared' && !connecting);
@@ -723,7 +739,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     g.songs.splice(songCount >= 2 ? songCount - 1 : songCount, 0, enc); // before the last song
     touched(g); persistGig(g); renderList(); renderPreview();
   });
-  $('gigSelect').addEventListener('change', e => { setCurrent(e.target.value); if (mode === 'local') saveLocal(); renderAll(); });
+  $('gigSelect').addEventListener('change', e => { unlocked.clear(); setCurrent(e.target.value); if (mode === 'local') saveLocal(); renderAll(); });
   $('newGig').addEventListener('click', () => {
     const g = { id: uid(), venue: '', date: '', songs: [], draft: true };
     S.gigs.push(g); setCurrent(g.id); renderAll(); $('venue').focus();
@@ -799,7 +815,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 
   /* ---------- gig fields ---------- */
   $('venue').addEventListener('input', e => { const g = gig(); g.venue = e.target.value; touched(g); persistGig(g); renderPreview(); renderGigSelect(); });
-  $('date').addEventListener('input', e => { const g = gig(); g.date = e.target.value; touched(g); persistGig(g); renderPreview(); renderGigSelect(); });
+  $('date').addEventListener('input', e => { const g = gig(); unlocked.add(g.id); g.date = e.target.value; touched(g); persistGig(g); renderPreview(); renderGigSelect(); });
   $('clearExample').addEventListener('click', () => {
     const g = gig(); g.songs = []; g.venue = ''; g.date = ''; g.example = false;
     persistGig(g); renderAll(); $('venue').focus();
@@ -1218,6 +1234,7 @@ ${forPdf ? 'window.__ready=Promise.all(waits).then(function(){fit();});'
     $('optCaps').checked = !!S.caps;
     $('optNotes').checked = S.notes !== false;
     $('exampleNotice').hidden = !g.example;
+    applyLock();
     renderList(); renderPreview(); renderLibrary(); renderSuggest();
   }
   // Re-render while keeping the caret where the person was typing.
