@@ -280,7 +280,8 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 
       <section class="group">
         <div class="primary-row">
-          <button class="btn-primary" id="printBtn" hidden>Download for print</button>
+          <button class="btn-primary" id="printBtn" hidden>Print</button>
+          <button class="link" id="pdfBtn" hidden>Download PDF</button>
           <button class="link" id="copyBtn">Copy as text</button>
         </div>
         <textarea class="copy-fallback" id="copyFallback" hidden readonly aria-label="Setlist text"></textarea>
@@ -1071,13 +1072,15 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refitAll);
 
   /* ---------- print ---------- */
+  // On Claude the page can only hand over files, so the PDF replaces the printable HTML there.
   function updatePrintBtn() {
-    const b = $('printBtn');
-    if (dl) { b.hidden = false; b.textContent = 'Download for print'; }
-    else if (!window.claude) { b.hidden = false; b.textContent = 'Print'; }
-    else b.hidden = true;
+    const b = $('printBtn'), p = $('pdfBtn');
+    if (dl) { b.hidden = true; p.hidden = false; p.className = 'btn-primary'; }
+    else if (!window.claude) { b.hidden = false; b.textContent = 'Print'; p.hidden = false; p.className = 'link'; }
+    else { b.hidden = true; p.hidden = true; }
   }
-  function printHtml() {
+  // forPdf: the same A4 page, rendered in a hidden frame for the PDF instead of opening the print dialog.
+  function printHtml(forPdf) {
     const g = gig(), tmp = document.createElement('div');
     buildSheet(tmp);
     const title = ['Setlist', g.venue, fmtDate(g.date)].filter(Boolean).join(' – ');
@@ -1104,8 +1107,9 @@ html, body { margin: 0; background: #fff; }
 .hint { font: 14px system-ui, sans-serif; color: #674533; text-align: center; padding: 12px; }
 @media screen { body { background: #e8e4da; } .page { box-shadow: 0 2px 14px rgba(0,0,0,.15); margin: 0 auto 24px; } }
 @media print { .hint { display: none; } }
-</style></head><body>
-<div class="hint">If the print dialog doesn't open, press Ctrl+P (or Cmd+P on a Mac).</div>
+body.pdf { background: #fff; } .pdf .page { box-shadow: none; margin: 0; }
+</style></head><body${forPdf ? ' class="pdf"' : ''}>
+${forPdf ? '' : `<div class="hint">If the print dialog doesn't open, press Ctrl+P (or Cmd+P on a Mac).</div>`}
 <div class="page"><div class="fit" id="a"><div class="sheet${S.caps ? ' caps' : ''}" id="s">${tmp.innerHTML}</div></div></div>
 <${SC}>
 function fit(){var a=document.getElementById('a'),s=document.getElementById('s'),lo=4,hi=140;for(var i=0;i<18;i++){var m=(lo+hi)/2;s.style.fontSize=m+'px';if(a.scrollHeight<=a.clientHeight+1&&a.scrollWidth<=a.clientWidth+1)lo=m;else hi=m;}s.style.fontSize=lo+'px';}
@@ -1113,13 +1117,53 @@ var waits=[].slice.call(document.images).map(function(i){return i.complete?0:new
 var link=document.querySelector('link[rel=stylesheet]');
 var css=link.sheet?Promise.resolve():new Promise(function(r){link.onload=link.onerror=r;setTimeout(r,4000);});
 waits.push(css.then(function(){if(!document.fonts)return;return Promise.all([document.fonts.load('40px Anton'),document.fonts.load('500 16px Archivo')]).catch(function(){});}));
-Promise.all(waits).then(function(){fit();setTimeout(function(){window.print();},300);});
+${forPdf ? 'window.__ready=Promise.all(waits).then(function(){fit();});'
+  : 'Promise.all(waits).then(function(){fit();setTimeout(function(){window.print();},300);});'}
 </${SC}></body></html>`;
   }
+  const fileBase = g => ['Setlist', g.venue, g.date].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]+/g, '').slice(0, 120);
+
+  /* ---------- PDF download ---------- */
+  const PDF_LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'];
+  async function makePdf() {
+    if (!window.html2canvas || !window.jspdf) for (const src of PDF_LIBS) await loadScript(src);
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true'); frame.tabIndex = -1;
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
+    document.body.appendChild(frame);
+    try {
+      await new Promise(r => { frame.onload = r; frame.srcdoc = printHtml(true); });
+      const w = frame.contentWindow;
+      await Promise.race([w.__ready, new Promise(r => setTimeout(r, 8000))]);
+      const page = w.document.querySelector('.page');
+      const canvas = await html2canvas(page, { scale: 3, backgroundColor: '#ffffff', logging: false, useCORS: true });
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      pdf.setProperties({ title: w.document.title });
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      return pdf.output('blob');
+    } finally { frame.remove(); }
+  }
+  $('pdfBtn').addEventListener('click', async () => {
+    const b = $('pdfBtn'), label = b.textContent, name = fileBase(gig()) + '.pdf';
+    b.disabled = true; b.textContent = 'Making PDF…';
+    try {
+      const blob = await makePdf();
+      if (dl) {
+        await dl.save({ filename: name, data: blob }).then(() => toast('PDF saved'),
+          e => { if (!e || e.code !== 'declined') toast("Couldn't save the PDF here"); });
+      } else {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      }
+    } catch (e) { toast("Couldn't make the PDF. Check your connection and try again."); }
+    b.disabled = false; b.textContent = label;
+  });
   $('printBtn').addEventListener('click', () => {
     const g = gig(), html = printHtml();
     if (dl) {
-      const name = ['Setlist', g.venue, g.date].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]+/g, '').slice(0, 120) + '.html';
+      const name = fileBase(g) + '.html';
       dl.save({ filename: name, data: html }).then(
         () => toast('Saved. Open the file to print it.'),
         e => { if (e && e.code === 'declined') return; toast("Couldn't save the file here"); }
