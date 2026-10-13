@@ -1023,11 +1023,13 @@ html, body { margin: 0; background: #fff; }
 @media print { .hint { display: none; } }
 </style></head><body>
 <div class="hint">If the print dialog doesn't open, press Ctrl+P (or Cmd+P on a Mac).</div>
-<div class="page"><div class="fit" id="a"><div class="${tmp.className}" id="s">${tmp.innerHTML}</div></div></div>
+<div class="page"><div class="fit" id="a"><div class="sheet${S.caps ? ' caps' : ''}" id="s">${tmp.innerHTML}</div></div></div>
 <${SC}>
 function fit(){var a=document.getElementById('a'),s=document.getElementById('s'),lo=4,hi=140;for(var i=0;i<18;i++){var m=(lo+hi)/2;s.style.fontSize=m+'px';if(a.scrollHeight<=a.clientHeight+1&&a.scrollWidth<=a.clientWidth+1)lo=m;else hi=m;}s.style.fontSize=lo+'px';}
 var waits=[].slice.call(document.images).map(function(i){return i.complete?0:new Promise(function(r){i.onload=i.onerror=r;});});
-if(document.fonts&&document.fonts.ready)waits.push(document.fonts.ready);
+var link=document.querySelector('link[rel=stylesheet]');
+var css=link.sheet?Promise.resolve():new Promise(function(r){link.onload=link.onerror=r;setTimeout(r,4000);});
+waits.push(css.then(function(){if(!document.fonts)return;return Promise.all([document.fonts.load('40px Anton'),document.fonts.load('500 16px Archivo')]).catch(function(){});}));
 Promise.all(waits).then(function(){fit();setTimeout(function(){window.print();},300);});
 </${SC}></body></html>`;
   }
