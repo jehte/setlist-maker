@@ -89,6 +89,8 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 /* songs */
 .song-list { list-style: none; margin: 0; padding: 0; }
 .song { display: grid; grid-template-columns: 22px 20px minmax(0, 1fr) 24px 24px; align-items: center; column-gap: 6px; border-bottom: 1px solid var(--line); }
+.song .enc-label { grid-column: 3 / 5; display: flex; align-items: center; gap: 10px; padding: 9px 2px; font-size: 12px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.song .enc-label::before, .song .enc-label::after { content: ""; flex: 1; border-top: 1px dashed var(--line); }
 .song .note-btn { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; display: grid; place-items: center; opacity: 0; }
 .song .note-btn:hover { color: var(--fg); }
 .song .note-btn.has { visibility: hidden; }
@@ -166,6 +168,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 .sheet li { white-space: nowrap; display: flex; align-items: baseline; gap: .35em; }
 .sheet.caps li, .sheet.caps .band { text-transform: uppercase; }
 .sheet li .n { font-family: var(--font-body); font-weight: 500; font-size: .42em; color: var(--ink-soft); min-width: 1.8em; text-align: right; font-variant-numeric: tabular-nums; }
+.sheet li.encore { display: block; font-family: var(--font-body); font-weight: 600; font-size: .34em; letter-spacing: .3em; text-transform: uppercase; color: var(--ink-soft); padding: 1.1em 0 .5em; }
 .sheet li .sn { font-family: var(--font-body); font-weight: 500; font-size: .36em; color: var(--ink-soft); text-transform: none; padding-left: .4em; }
 .sheet .empty { font-family: var(--font-body); font-size: .42em; color: var(--ink-soft); text-align: center; }
 
@@ -254,7 +257,8 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
             <label><input type="checkbox" id="optNum"> Numbers</label>
             <label><input type="checkbox" id="optCaps"> Caps</label>
             <label><input type="checkbox" id="optNotes"> Notes</label>
-            <button class="link u" id="libToggle" style="margin-left:auto" aria-expanded="false"></button>
+            <button class="link u" id="encoreBtn" type="button" style="margin-left:auto">+ Encore</button>
+            <button class="link u" id="libToggle" aria-expanded="false"></button>
           </div>
           <div class="library" id="library" hidden>
             <input type="text" class="line-input" id="libFilter" placeholder="Search library…" aria-label="Search song library" autocomplete="off">
@@ -333,10 +337,21 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 
   const gig = () => S.gigs.find(g => g.id === current) || S.gigs[0];
   const sortedGigs = () => [...S.gigs].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  function todayIso() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  // Upcoming: nearest first (today counts as upcoming). Played: most recent first.
+  function gigGroups() {
+    const t = todayIso();
+    return {
+      upcoming: S.gigs.filter(g => g.date && g.date >= t).sort((a, b) => a.date.localeCompare(b.date)),
+      undated: S.gigs.filter(g => !g.date),
+      played: S.gigs.filter(g => g.date && g.date < t).sort((a, b) => b.date.localeCompare(a.date))
+    };
+  }
+  function defaultGig() { const gr = gigGroups(); return gr.upcoming[0] || gr.undated[0] || gr.played[0]; }
   function setCurrent(id) { current = id; lsSet(CKEY, id); }
   function ensureGig() {
     if (!S.gigs.length) S.gigs.push({ id: uid(), venue: '', date: '', songs: [], draft: true });
-    if (!S.gigs.some(g => g.id === current)) setCurrent(sortedGigs()[0].id);
+    if (!S.gigs.some(g => g.id === current)) setCurrent(defaultGig().id);
   }
   function touched(g) { if (g.example) { g.example = false; $('exampleNotice').hidden = true; } }
 
@@ -386,7 +401,8 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     else toast("Couldn't save the last change. Check your connection.");
   }
 
-  function gigBody(g) { return { venue: g.venue || '', date: g.date || '', songs: g.songs.map(s => ({ id: s.id, title: s.title, note: s.note || '' })) }; }
+  const songCopy = s => s.kind === 'encore' ? { id: s.id, kind: 'encore', title: '', note: '' } : { id: s.id, title: s.title, note: s.note || '' };
+  function gigBody(g) { return { venue: g.venue || '', date: g.date || '', songs: g.songs.map(songCopy) }; }
   function persistGig(g) {
     g.draft = false;
     if (mode === 'local') saveLocal(); else queueWrite('gigs/' + g.id, () => gigBody(g));
@@ -443,7 +459,8 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
         if (isDirty('gigs/' + d.id) && local.has(d.id)) { out.push(local.get(d.id)); return; }
         const x = d.data() || {};
         out.push({ id: d.id, venue: String(x.venue || ''), date: String(x.date || ''),
-          songs: Array.isArray(x.songs) ? x.songs.map(s => ({ id: String((s && s.id) || uid()), title: String((s && s.title) || ''), note: String((s && s.note) || '') })) : [] });
+          songs: Array.isArray(x.songs) ? x.songs.map(s => s && s.kind === 'encore' ? { id: String(s.id || uid()), kind: 'encore', title: '', note: '' }
+            : { id: String((s && s.id) || uid()), title: String((s && s.title) || ''), note: String((s && s.note) || '') }) : [] });
       });
       S.gigs.forEach(g => { if (!seen.has(g.id) && (g.draft || isDirty('gigs/' + g.id))) out.push(g); });
       S.gigs = out;
@@ -664,14 +681,26 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   function renderGigSelect() {
     const sel = $('gigSelect');
     sel.textContent = '';
-    sortedGigs().forEach(g => {
-      const o = document.createElement('option');
-      o.value = g.id;
-      o.textContent = (g.venue || 'Untitled gig') + (g.date ? ' · ' + fmtDate(g.date) : '');
-      sel.appendChild(o);
+    const { upcoming, played, undated } = gigGroups();
+    [['Upcoming', upcoming], ['No date', undated], ['Played', played]].forEach(([label, list]) => {
+      if (!list.length) return;
+      const grp = document.createElement('optgroup'); grp.label = label;
+      list.forEach(g => {
+        const o = document.createElement('option');
+        o.value = g.id;
+        o.textContent = (g.venue || 'Untitled gig') + (g.date ? ' · ' + fmtDate(g.date) : '');
+        grp.appendChild(o);
+      });
+      sel.appendChild(grp);
     });
     sel.value = gig().id;
   }
+  $('encoreBtn').addEventListener('click', () => {
+    const g = gig(), enc = { id: uid(), kind: 'encore', title: '', note: '' };
+    const songCount = g.songs.length;
+    g.songs.splice(songCount >= 2 ? songCount - 1 : songCount, 0, enc); // before the last song
+    touched(g); persistGig(g); renderList(); renderPreview();
+  });
   $('gigSelect').addEventListener('change', e => { setCurrent(e.target.value); if (mode === 'local') saveLocal(); renderAll(); });
   $('newGig').addEventListener('click', () => {
     const g = { id: uid(), venue: '', date: '', songs: [], draft: true };
@@ -679,7 +708,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   });
   $('dupGig').addEventListener('click', () => {
     const src = gig();
-    const g = { id: uid(), venue: '', date: '', songs: src.songs.map(s => ({ id: uid(), title: s.title, note: s.note || '' })) };
+    const g = { id: uid(), venue: '', date: '', songs: src.songs.map(s => ({ ...songCopy(s), id: uid() })) };
     S.gigs.push(g); setCurrent(g.id); persistGig(g); renderAll(); $('venue').focus(); toast('Setlist copied to a new gig');
   });
   $('delGig').addEventListener('click', () => {
@@ -768,29 +797,46 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   function renderList(focusId) {
     const list = $('songList'); list.textContent = '';
     const g = gig();
+    let num = 0;
     g.songs.forEach((s, i) => {
-      const li = document.createElement('li'); li.className = 'song'; li.dataset.id = s.id;
+      const isEnc = s.kind === 'encore';
+      if (!isEnc) num++;
+      const name = isEnc ? 'encore break' : (s.title || 'song');
+      const li = document.createElement('li'); li.className = 'song' + (isEnc ? ' encore-row' : ''); li.dataset.id = s.id;
       const h = document.createElement('button'); h.className = 'handle'; h.type = 'button'; h.innerHTML = grip;
-      h.setAttribute('aria-label', 'Reorder ' + (s.title || 'song') + ' (arrow keys)');
-      const n = document.createElement('span'); n.className = 'num'; n.textContent = i + 1;
-      const inp = document.createElement('input'); inp.type = 'text'; inp.id = 'song-' + s.id; inp.value = s.title;
-      inp.setAttribute('aria-label', 'Song ' + (i + 1));
-      const nb = document.createElement('button'); nb.className = 'note-btn'; nb.type = 'button'; nb.innerHTML = noteIcon;
-      nb.title = 'Add a note'; nb.setAttribute('aria-label', 'Add a note to ' + (s.title || 'song'));
+      h.setAttribute('aria-label', 'Reorder ' + name + ' (arrow keys)');
+      const n = document.createElement('span'); n.className = 'num'; n.textContent = isEnc ? '' : num;
       const d = document.createElement('button'); d.className = 'del'; d.type = 'button'; d.textContent = '×';
-      d.setAttribute('aria-label', 'Remove ' + (s.title || 'song'));
-      const ni = document.createElement('input'); ni.type = 'text'; ni.className = 'song-note'; ni.id = 'note-' + s.id;
-      ni.value = s.note || ''; ni.placeholder = 'Note, e.g. capo 2'; ni.setAttribute('aria-label', 'Note for ' + (s.title || 'song'));
-      const showNote = !!s.note || openNotes.has(s.id);
-      ni.hidden = !showNote; nb.classList.toggle('has', showNote);
+      d.setAttribute('aria-label', 'Remove ' + name);
       const mv = document.createElement('span'); mv.className = 'moves';
       const up = document.createElement('button'); up.type = 'button'; up.id = 'up-' + s.id; up.innerHTML = arrowUp;
-      up.setAttribute('aria-label', 'Move ' + (s.title || 'song') + ' up'); up.disabled = i === 0;
+      up.setAttribute('aria-label', 'Move ' + name + ' up'); up.disabled = i === 0;
       const dn = document.createElement('button'); dn.type = 'button'; dn.id = 'dn-' + s.id; dn.innerHTML = arrowDown;
-      dn.setAttribute('aria-label', 'Move ' + (s.title || 'song') + ' down'); dn.disabled = i === g.songs.length - 1;
+      dn.setAttribute('aria-label', 'Move ' + name + ' down'); dn.disabled = i === g.songs.length - 1;
       mv.append(up, dn);
       up.addEventListener('click', () => moveSong(g, s, -1, 'up-' + s.id));
       dn.addEventListener('click', () => moveSong(g, s, 1, 'dn-' + s.id));
+      d.addEventListener('click', () => { g.songs = g.songs.filter(x => x.id !== s.id); touched(g); persistGig(g); renderList(); renderPreview(); renderLibrary(); });
+      h.addEventListener('keydown', e => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        e.preventDefault();
+        moveSong(g, s, e.key === 'ArrowUp' ? -1 : 1);
+      });
+      h.addEventListener('pointerdown', e => startDrag(e, li, h));
+      if (isEnc) {
+        const lab = document.createElement('span'); lab.className = 'enc-label'; lab.textContent = 'Encore';
+        li.append(h, mv, n, lab, d); list.appendChild(li);
+        return;
+      }
+
+      const inp = document.createElement('input'); inp.type = 'text'; inp.id = 'song-' + s.id; inp.value = s.title;
+      inp.setAttribute('aria-label', 'Song ' + num);
+      const nb = document.createElement('button'); nb.className = 'note-btn'; nb.type = 'button'; nb.innerHTML = noteIcon;
+      nb.title = 'Add a note'; nb.setAttribute('aria-label', 'Add a note to ' + name);
+      const ni = document.createElement('input'); ni.type = 'text'; ni.className = 'song-note'; ni.id = 'note-' + s.id;
+      ni.value = s.note || ''; ni.placeholder = 'Note, e.g. capo 2'; ni.setAttribute('aria-label', 'Note for ' + name);
+      const showNote = !!s.note || openNotes.has(s.id);
+      ni.hidden = !showNote; nb.classList.toggle('has', showNote);
       li.append(h, mv, n, inp, nb, d, ni); list.appendChild(li);
 
       inp.addEventListener('input', () => { s.title = inp.value; touched(g); persistGig(g); renderPreview(); });
@@ -801,16 +847,10 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
       ni.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); ni.blur(); } });
       ni.addEventListener('blur', () => { if (!ni.value.trim()) { openNotes.delete(s.id); ni.hidden = true; nb.classList.remove('has'); } });
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('addInput').focus(); } });
-      d.addEventListener('click', () => { g.songs = g.songs.filter(x => x.id !== s.id); touched(g); persistGig(g); renderList(); renderPreview(); renderLibrary(); });
-      h.addEventListener('keydown', e => {
-        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-        e.preventDefault();
-        moveSong(g, s, e.key === 'ArrowUp' ? -1 : 1);
-      });
-      h.addEventListener('pointerdown', e => startDrag(e, li, h));
     });
-    const c = g.songs.length;
+    const c = num;
     $('count').textContent = c ? c + (c === 1 ? ' song' : ' songs') : '';
+    $('encoreBtn').hidden = g.songs.some(x => x.kind === 'encore');
     if (focusId) {
       // keep focus on the control that was used; fall back to the other arrow at the list ends
       let el = $(focusId);
@@ -956,15 +996,21 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
       });
       el.appendChild(m);
     }
-    const songs = g.songs.filter(s => s.title.trim());
-    if (!songs.length) {
+    const items = g.songs.filter(s => s.kind === 'encore' || s.title.trim());
+    if (!items.some(s => s.kind !== 'encore')) {
       const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No songs yet'; el.appendChild(e);
       return;
     }
     const ol = document.createElement('ol');
-    songs.forEach((s, i) => {
+    let num = 0;
+    items.forEach((s, i) => {
       const li = document.createElement('li');
-      if (S.numbered) { const n = document.createElement('span'); n.className = 'n'; n.textContent = i + 1; li.appendChild(n); }
+      if (s.kind === 'encore') {
+        if (i === items.length - 1) return; // nothing after it
+        li.className = 'encore'; li.textContent = 'Encore'; ol.appendChild(li); return;
+      }
+      num++;
+      if (S.numbered) { const n = document.createElement('span'); n.className = 'n'; n.textContent = num; li.appendChild(n); }
       const t = document.createElement('span'); t.textContent = s.title.trim(); li.appendChild(t);
       if (S.notes !== false && s.note && s.note.trim()) { const sn = document.createElement('span'); sn.className = 'sn'; sn.textContent = s.note.trim(); li.appendChild(sn); }
       ol.appendChild(li);
@@ -1017,6 +1063,7 @@ html, body { margin: 0; background: #fff; }
 .sheet li { white-space: nowrap; display: flex; align-items: baseline; gap: .35em; }
 .sheet.caps li, .sheet.caps .band { text-transform: uppercase; }
 .sheet li .n { font-family: "Archivo", system-ui, sans-serif; font-weight: 500; font-size: .42em; color: #674533; min-width: 1.8em; text-align: right; }
+.sheet li.encore { display: block; font-family: "Archivo", system-ui, sans-serif; font-weight: 500; font-size: .34em; letter-spacing: .3em; text-transform: uppercase; color: #674533; padding: 1.1em 0 .5em; }
 .sheet li .sn { font-family: "Archivo", system-ui, sans-serif; font-weight: 500; font-size: .36em; color: #674533; text-transform: none; padding-left: .4em; }
 .hint { font: 14px system-ui, sans-serif; color: #674533; text-align: center; padding: 12px; }
 @media screen { body { background: #e8e4da; } .page { box-shadow: 0 2px 14px rgba(0,0,0,.15); margin: 0 auto 24px; } }
@@ -1051,7 +1098,9 @@ Promise.all(waits).then(function(){fit();setTimeout(function(){window.print();},
   function asText() {
     const g = gig();
     const head = [S.band, g.venue, fmtDate(g.date)].filter(Boolean).join(' · ');
-    const songs = g.songs.filter(s => s.title.trim()).map((s, i) => (S.numbered ? (i + 1) + '. ' : '') + s.title.trim() + (S.notes !== false && s.note && s.note.trim() ? ' (' + s.note.trim() + ')' : ''));
+    let num = 0;
+    const songs = g.songs.filter(s => s.kind === 'encore' || s.title.trim()).map(s => s.kind === 'encore' ? '\n— Encore —' :
+      (S.numbered ? (++num) + '. ' : '') + s.title.trim() + (S.notes !== false && s.note && s.note.trim() ? ' (' + s.note.trim() + ')' : ''));
     return (head ? head + '\n\n' : '') + songs.join('\n');
   }
   $('copyBtn').addEventListener('click', () => {
