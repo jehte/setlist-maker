@@ -169,6 +169,11 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 .sheet li .sn { font-family: var(--font-body); font-weight: 500; font-size: .36em; color: var(--ink-soft); text-transform: none; padding-left: .4em; }
 .sheet .empty { font-family: var(--font-body); font-size: .42em; color: var(--ink-soft); text-align: center; }
 
+.signin { display: grid; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.signin-form { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: end; }
+.signin-form .line-input { flex: 1 1 200px; width: auto; }
+.signin .note:empty { display: none; }
+
 .theme-switch { display: flex; gap: 14px; align-items: baseline; font-size: 13px; color: var(--muted); }
 .theme-switch .link { font-size: 13px; }
 .theme-switch .link[aria-checked="true"] { color: var(--fg); font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
@@ -181,6 +186,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     <select id="gigSelect" aria-label="Choose gig"></select>
     <div class="actions">
       <span class="status" id="status"></span>
+      <button class="link" id="signOutBtn" hidden>Sign out</button>
       <button class="link" id="newGig">New</button>
       <button class="link" id="dupGig" title="Copy this setlist to a new gig">Duplicate</button>
       <button class="link danger" id="delGig">Delete</button>
@@ -198,6 +204,14 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
         <span id="migrateText"></span>
         <button class="link u" id="migrateBtn">Move them to the shared setlists</button>
       </p>
+      <div class="signin" id="signin" hidden>
+        <p class="note strong">Enter the band password to use the shared setlists. Without it, setlists are saved in this browser only.</p>
+        <form class="signin-form" id="signinForm">
+          <input type="password" class="line-input" id="signinPassword" placeholder="Band password" aria-label="Band password" autocomplete="current-password" required>
+          <button class="btn-primary" type="submit">Open shared setlists</button>
+        </form>
+        <p class="note" id="signinMsg" role="status"></p>
+      </div>
       <p class="note" id="readOnlyNotice" hidden>You can view these setlists but not change them. Ask the owner for edit access.</p>
 
       <fieldset class="editor-fs" id="editorFs">
@@ -276,6 +290,11 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 (() => {
   const LKEY = 'setlist-maker.v1', CKEY = 'setlist-maker.current', MKEY = 'setlist-maker.migrated';
   const LOGO_MAX = 190000; // chars of data URL; shared documents are capped at 256 KiB
+  // Supabase project for the GitHub Pages version. The anon key is public by design; access is limited by row-level security.
+  const SUPABASE_URL = 'https://rbnyqbmowsmejnnwkpmz.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_5TZuERErGfd-7VTjvYdW-w_EeDi5K92';
+  const SUPABASE_BAND_EMAIL = 'band@setlist-maker.app'; // the one shared login; its password is the band password
+  const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/dist/umd/supabase.min.js';
   const $ = id => document.getElementById(id);
   const uid = () => Math.random().toString(36).slice(2, 10);
   const norm = t => String(t || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -441,15 +460,25 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     ensureGig();
   }
 
+  // Shared storage: the Claude page's own database, or Supabase when the page runs elsewhere (GitHub Pages).
   async function connect() {
-    if (!window.claude || typeof window.claude.use !== 'function') return;
-    const [d, u, dlc] = await Promise.all([
-      claude.use('db').catch(() => null), claude.use('user').catch(() => null), claude.use('downloads').catch(() => null)
-    ]);
-    dl = dlc; updatePrintBtn();
-    if (!d) return;
+    if (window.claude && typeof window.claude.use === 'function') {
+      const [d, u, dlc] = await Promise.all([
+        claude.use('db').catch(() => null), claude.use('user').catch(() => null), claude.use('downloads').catch(() => null)
+      ]);
+      dl = dlc; updatePrintBtn();
+      if (!d) return;
+      let canWrite = null;
+      try { if (u) canWrite = await u.can('data.write'); } catch (e) {}
+      startShared(d, canWrite !== false);
+    } else if (SUPABASE_URL && SUPABASE_KEY) {
+      connectSupabase();
+    }
+  }
+
+  function startShared(d, canWrite) {
     db = d; mode = 'shared'; connecting = true; renderStatus(); applyLock();
-    try { if (u && (await u.can('data.write')) === false) setReadOnly(true); } catch (e) {}
+    if (!canWrite) setReadOnly(true);
 
     const fallback = setTimeout(() => { if (!sharedReady) goLocal(); }, 9000);
     const onErr = e => {
@@ -472,6 +501,116 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   function goLocal() {
     mode = 'local'; db = null; connecting = false; readOnly = false;
     S = readLocal() || sample(); ensureGig(); applyLock(); renderStatus(); render();
+  }
+
+  /* ---------- Supabase (used outside Claude, e.g. on GitHub Pages) ---------- */
+  let sb = null, sbStarted = false, sbEmail = '';
+  function loadScript(src) {
+    return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  }
+  async function connectSupabase() {
+    try { await loadScript(SUPABASE_LIB); } catch (e) { toast("Couldn't reach the shared setlists. Working in this browser only."); return; }
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+    sb.auth.onAuthStateChange((ev, session) => {
+      if (session && !sbStarted) setTimeout(() => startSupabase(session), 0);
+      if (ev === 'SIGNED_OUT') location.reload();
+    });
+    const { data } = await sb.auth.getSession();
+    if (data && data.session) startSupabase(data.session); else showSignIn();
+  }
+  async function startSupabase(session) {
+    if (sbStarted) return; sbStarted = true;
+    sbEmail = (session.user && session.user.email) || '';
+    $('signin').hidden = true; $('signOutBtn').hidden = false;
+    const { data, error } = await sb.from('band_members').select('email').limit(1);
+    if (error || !data || !data.length) {
+      showSignIn(error ? "Couldn't reach the shared setlists. Check your connection and reload."
+        : "The band login isn't on the band list in the database. Run supabase/schema.sql again.", true);
+      return;
+    }
+    startShared(supabaseDb(sb), true);
+  }
+  function showSignIn(msg, signedIn) {
+    $('signin').hidden = false;
+    $('signinForm').hidden = !!signedIn;
+    $('signinMsg').textContent = msg || '';
+  }
+  $('signinForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const password = $('signinPassword').value; if (!password || !sb) return;
+    const btn = $('signinForm').querySelector('button'); btn.disabled = true;
+    $('signinMsg').textContent = '';
+    const { error } = await sb.auth.signInWithPassword({ email: SUPABASE_BAND_EMAIL, password });
+    btn.disabled = false;
+    if (error) {
+      $('signinMsg').textContent = /invalid/i.test(error.message) ? 'Wrong band password. Try again.'
+        : "Couldn't sign in: " + error.message;
+      $('signinPassword').select();
+    } else $('signinPassword').value = '';
+  });
+  $('signOutBtn').addEventListener('click', () => { if (sb) sb.auth.signOut(); });
+
+  // Adapts Supabase tables to the small document API the rest of the page uses.
+  function supabaseDb(sb) {
+    const lists = { gigs: new Map(), library: new Map() };
+    let settingsRow = null, loaded = false;
+    const subs = { gigs: [], library: [], settings: [], logo: [] }, errs = [];
+    const toErr = e => ({ code: (e && (e.code === '42501' || /row-level security|permission/i.test(e.message || ''))) ? 'invalid_argument' : 'unavailable', message: (e && e.message) || '' });
+    const run = async q => { const { error } = await q; if (error) throw toErr(error); };
+    const snap = (id, body) => ({ id, exists: !!body, data: () => body || undefined });
+    function emit() {
+      const docs = t => ({ docs: [...lists[t].entries()].map(([id, row]) => snap(id, row)) });
+      subs.gigs.forEach(f => f(docs('gigs')));
+      subs.library.forEach(f => f(docs('library')));
+      const s = settingsRow;
+      subs.settings.forEach(f => f(snap('settings', s ? { band: s.band, numbered: s.numbered, caps: s.caps, notes: s.notes } : null)));
+      subs.logo.forEach(f => f(snap('logo', s && s.logo ? { data: s.logo } : null)));
+    }
+    async function loadAll() {
+      const [g, l, s] = await Promise.all([
+        sb.from('gigs').select('id,venue,date,songs'),
+        sb.from('library').select('id,title,note'),
+        sb.from('settings').select('*').eq('id', 'band').maybeSingle()
+      ]);
+      const err = g.error || l.error || s.error;
+      if (err) { if (!loaded) errs.forEach(f => f && f(toErr(err))); return; }
+      lists.gigs = new Map(g.data.map(r => [r.id, r]));
+      lists.library = new Map(l.data.map(r => [r.id, r]));
+      settingsRow = s.data || null;
+      loaded = true; emit();
+    }
+    sb.channel('setlist-db')
+      .on('postgres_changes', { event: '*', schema: 'public' }, p => {
+        const t = p.table, row = p.new && p.new.id ? p.new : null, id = (p.old && p.old.id) || (row && row.id);
+        if (t === 'gigs' || t === 'library') { if (p.eventType === 'DELETE') lists[t].delete(id); else if (row) lists[t].set(row.id, row); }
+        else if (t === 'settings' && row && row.id === 'band') settingsRow = row;
+        else return;
+        if (loaded) emit();
+      })
+      .subscribe();
+    loadAll();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadAll(); });
+
+    // Writes update the local copy first, like the Claude database's latency compensation.
+    function doc(path) {
+      const [c, id] = path.split('/');
+      return {
+        async set(body) {
+          if (c === 'gigs') { const row = { id, venue: body.venue, date: body.date, songs: body.songs }; lists.gigs.set(id, row); if (loaded) emit(); return run(sb.from('gigs').upsert(row)); }
+          if (c === 'library') { const row = { id, title: body.title, note: body.note || '' }; lists.library.set(id, row); if (loaded) emit(); return run(sb.from('library').upsert(row)); }
+          if (path === 'band/settings') { const row = { id: 'band', band: body.band, numbered: body.numbered, caps: body.caps, notes: body.notes }; settingsRow = { ...(settingsRow || {}), ...row }; if (loaded) emit(); return run(sb.from('settings').upsert(row)); }
+          if (path === 'band/logo') { const row = { id: 'band', logo: body.data || null }; settingsRow = { ...(settingsRow || {}), ...row }; if (loaded) emit(); return run(sb.from('settings').upsert(row)); }
+        },
+        async delete() {
+          if (c === 'gigs' || c === 'library') { lists[c].delete(id); if (loaded) emit(); return run(sb.from(c).delete().eq('id', id)); }
+        },
+        onSnapshot(next, err) { subs[path === 'band/settings' ? 'settings' : 'logo'].push(next); errs.push(err); if (loaded) emit(); return () => {}; }
+      };
+    }
+    return {
+      doc,
+      collection: name => ({ doc: id => doc(name + '/' + id), onSnapshot(next, err) { subs[name].push(next); errs.push(err); if (loaded) emit(); return () => {}; } })
+    };
   }
 
   function checkMigrate() {
