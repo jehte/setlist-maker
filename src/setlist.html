@@ -158,6 +158,9 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 .primary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
 .btn-primary { border: 0; border-radius: 3px; background: var(--accent); color: var(--accent-ink); padding: 11px 22px; font-weight: 600; cursor: pointer; }
 .btn-primary:hover { filter: brightness(1.12); }
+.btn-secondary { border: 1px solid var(--fg); border-radius: 3px; background: none; color: var(--fg); padding: 10px 21px; font-weight: 600; cursor: pointer; }
+.btn-secondary:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.btn-primary:disabled, .btn-secondary:disabled { opacity: .6; cursor: default; }
 
 .note { font-size: 14px; color: var(--muted); margin: 0; }
 .note.strong { color: var(--fg); }
@@ -281,7 +284,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
       <section class="group">
         <div class="primary-row">
           <button class="btn-primary" id="printBtn" hidden>Print</button>
-          <button class="link" id="pdfBtn" hidden>Download PDF</button>
+          <button class="btn-secondary" id="pdfBtn" hidden>Download PDF</button>
           <button class="link" id="copyBtn">Copy as text</button>
         </div>
         <textarea class="copy-fallback" id="copyFallback" hidden readonly aria-label="Setlist text"></textarea>
@@ -1076,7 +1079,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   function updatePrintBtn() {
     const b = $('printBtn'), p = $('pdfBtn');
     if (dl) { b.hidden = true; p.hidden = false; p.className = 'btn-primary'; }
-    else if (!window.claude) { b.hidden = false; b.textContent = 'Print'; p.hidden = false; p.className = 'link'; }
+    else if (!window.claude) { b.hidden = false; b.textContent = 'Print'; p.hidden = false; p.className = 'btn-secondary'; }
     else { b.hidden = true; p.hidden = true; }
   }
   // forPdf: the same A4 page, rendered in a hidden frame for the PDF instead of opening the print dialog.
