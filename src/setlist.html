@@ -121,7 +121,15 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   .song .moves { display: flex; }
   .song .del, .song .note-btn { padding: 8px; }
 }
-.song.dragging { background: var(--bg); position: relative; z-index: 2; }
+@media (hover: hover) {
+  .song .handle { opacity: .35; }
+  .song .handle:hover { color: var(--fg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .song-list.sorting .song:not(.dragging) { transition: transform .15s ease; }
+}
+.song-list.sorting { user-select: none; }
+.song.dragging { background: var(--bg); position: relative; z-index: 2; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
 .song.dragging .handle { opacity: 1; cursor: grabbing; color: var(--fg); }
 .add-wrap { position: relative; }
 .add-input { margin-top: 2px; }
@@ -797,7 +805,9 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   const arrowUp = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>';
   const arrowDown = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 
+  let dragging = false;
   function renderList(focusId) {
+    if (dragging) return; // a live update mid-drag waits for the drop
     const list = $('songList'); list.textContent = '';
     const g = gig();
     let num = 0;
@@ -872,27 +882,50 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
   function startDrag(e, li, handle) {
     if (e.button !== 0 || $('editorFs').disabled) return;
     e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
-    li.classList.add('dragging');
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
     const list = $('songList');
-    const move = ev => {
-      const y = ev.clientY;
-      const prev = li.previousElementSibling, next = li.nextElementSibling;
-      if (prev) { const r = prev.getBoundingClientRect(); if (y < r.top + r.height / 2) { list.insertBefore(li, prev); return; } }
-      if (next) { const r = next.getBoundingClientRect(); if (y > r.top + r.height / 2) list.insertBefore(next, li); }
-    };
+    const rows = [...list.children], from = rows.indexOf(li);
+    // Page-space geometry captured once; the dragged row follows the pointer, the others slide aside.
+    const tops = rows.map(r => r.getBoundingClientRect().top + window.scrollY);
+    const h = li.getBoundingClientRect().height;
+    const startY = e.clientY + window.scrollY;
+    let lastClientY = e.clientY, target = from, raf = 0;
+    dragging = true;
+    list.classList.add('sorting'); li.classList.add('dragging');
+
+    function update() {
+      const dy = lastClientY + window.scrollY - startY;
+      li.style.transform = `translateY(${dy}px)`;
+      const center = tops[from] + h / 2 + dy;
+      target = 0;
+      rows.forEach((r, j) => { if (j !== from && tops[j] + r.offsetHeight / 2 < center) target++; });
+      rows.forEach((r, j) => {
+        if (j === from) return;
+        const shift = (j > from && j <= target) ? -h : (j < from && j >= target) ? h : 0;
+        r.style.transform = shift ? `translateY(${shift}px)` : '';
+      });
+    }
+    function autoScroll() {
+      const edge = 70, vh = window.innerHeight;
+      const step = lastClientY < edge ? -Math.ceil((edge - lastClientY) / 5) : lastClientY > vh - edge ? Math.ceil((lastClientY - vh + edge) / 5) : 0;
+      if (step) { window.scrollBy(0, step); update(); }
+      raf = requestAnimationFrame(autoScroll);
+    }
+    raf = requestAnimationFrame(autoScroll);
+
+    const move = ev => { lastClientY = ev.clientY; update(); };
     const up = () => {
+      cancelAnimationFrame(raf);
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', up);
       handle.removeEventListener('pointercancel', up);
-      li.classList.remove('dragging');
-      const g = gig();
-      const order = [...list.children].map(x => x.dataset.id);
-      const byId = Object.fromEntries(g.songs.map(s => [s.id, s]));
-      const before = g.songs.map(s => s.id).join();
-      if (order.every(id => byId[id]) && order.length === g.songs.length) {
-        g.songs = order.map(id => byId[id]);
-        if (order.join() !== before) { touched(g); persistGig(g); }
+      rows.forEach(r => { r.style.transform = ''; });
+      list.classList.remove('sorting'); li.classList.remove('dragging');
+      dragging = false;
+      const g = gig(), s = g.songs[from];
+      if (s && s.id === li.dataset.id && target !== from) {
+        g.songs.splice(from, 1); g.songs.splice(target, 0, s);
+        touched(g); persistGig(g);
       }
       renderList(); renderPreview();
     };
