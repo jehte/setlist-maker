@@ -1188,7 +1188,7 @@ ${forPdf ? 'window.__ready=Promise.all(waits).then(function(){fit();});'
     const g = gig();
     const head = [S.band, g.venue, fmtDate(g.date)].filter(Boolean).join(' · ');
     let num = 0;
-    const songs = g.songs.filter(s => s.kind === 'encore' || s.title.trim()).map(s => s.kind === 'encore' ? '\n— Encore —' :
+    const songs = g.songs.filter(s => s.kind === 'encore' || s.title.trim()).map(s => s.kind === 'encore' ? '—————' :
       (S.numbered ? (++num) + '. ' : '') + s.title.trim() + (S.notes !== false && s.note && s.note.trim() ? ' (' + s.note.trim() + ')' : ''));
     return (head ? head + '\n\n' : '') + songs.join('\n');
   }
