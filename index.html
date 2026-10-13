@@ -100,8 +100,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 /* songs */
 .song-list { list-style: none; margin: 0; padding: 0; }
 .song { display: grid; grid-template-columns: 22px 20px minmax(0, 1fr) 24px 24px; align-items: center; column-gap: 6px; border-bottom: 1px solid var(--line); }
-.song .enc-label { grid-column: 3 / 5; display: flex; align-items: center; gap: 10px; padding: 9px 2px; font-size: 12px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
-.song .enc-label::before, .song .enc-label::after { content: ""; flex: 1; border-top: 1px dashed var(--line); }
+.song .enc-label { grid-column: 3 / 5; align-self: center; height: 0; border-top: 2px solid var(--muted); margin: 0 2px; opacity: .7; }
 .song .note-btn { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px; display: grid; place-items: center; opacity: 0; }
 .song .note-btn:hover { color: var(--fg); }
 .song .note-btn.has { visibility: hidden; }
@@ -190,7 +189,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
 .sheet li { white-space: nowrap; display: flex; align-items: baseline; gap: .35em; }
 .sheet.caps li, .sheet.caps .band { text-transform: uppercase; }
 .sheet li .n { font-family: var(--font-body); font-weight: 500; font-size: .42em; color: var(--ink-soft); min-width: 1.8em; text-align: right; font-variant-numeric: tabular-nums; }
-.sheet li.encore { display: block; font-family: var(--font-body); font-weight: 600; font-size: .34em; letter-spacing: .3em; text-transform: uppercase; color: var(--ink-soft); padding: 1.1em 0 .5em; }
+.sheet li.encore { display: block; height: 0; border-top: .05em solid var(--ink-soft); margin: .4em 0; }
 .sheet li .sn { font-family: var(--font-body); font-weight: 500; font-size: .36em; color: var(--ink-soft); text-transform: none; padding-left: .4em; }
 .sheet .empty { font-family: var(--font-body); font-size: .42em; color: var(--ink-soft); text-align: center; }
 
@@ -279,7 +278,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
             <label><input type="checkbox" id="optNum"> Numbers</label>
             <label><input type="checkbox" id="optCaps"> Caps</label>
             <label><input type="checkbox" id="optNotes"> Notes</label>
-            <button class="link u" id="encoreBtn" type="button" style="margin-left:auto">+ Encore</button>
+            <button class="link u" id="encoreBtn" type="button" style="margin-left:auto">+ Line</button>
             <button class="link u" id="libToggle" aria-expanded="false"></button>
           </div>
           <div class="library" id="library" hidden>
@@ -826,7 +825,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     g.songs.forEach((s, i) => {
       const isEnc = s.kind === 'encore';
       if (!isEnc) num++;
-      const name = isEnc ? 'encore break' : (s.title || 'song');
+      const name = isEnc ? 'divider line' : (s.title || 'song');
       const li = document.createElement('li'); li.className = 'song' + (isEnc ? ' encore-row' : ''); li.dataset.id = s.id;
       const h = document.createElement('button'); h.className = 'handle'; h.type = 'button'; h.innerHTML = grip;
       h.setAttribute('aria-label', 'Reorder ' + name + ' (arrow keys)');
@@ -849,7 +848,7 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
       });
       h.addEventListener('pointerdown', e => startDrag(e, li, h));
       if (isEnc) {
-        const lab = document.createElement('span'); lab.className = 'enc-label'; lab.textContent = 'Encore';
+        const lab = document.createElement('span'); lab.className = 'enc-label'; lab.setAttribute('aria-label', 'Divider line');
         li.append(h, mv, n, lab, d); list.appendChild(li);
         return;
       }
@@ -875,7 +874,6 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     });
     const c = num;
     $('count').textContent = c ? c + (c === 1 ? ' song' : ' songs') : '';
-    $('encoreBtn').hidden = g.songs.some(x => x.kind === 'encore');
     if (focusId) {
       // keep focus on the control that was used; fall back to the other arrow at the list ends
       let el = $(focusId);
@@ -1054,8 +1052,8 @@ input[type="date"].line-input { width: auto; color: var(--fg); }
     items.forEach((s, i) => {
       const li = document.createElement('li');
       if (s.kind === 'encore') {
-        if (i === items.length - 1) return; // nothing after it
-        li.className = 'encore'; li.textContent = 'Encore'; ol.appendChild(li); return;
+        if (i === items.length - 1) return; // a line at the end separates nothing
+        li.className = 'encore'; li.setAttribute('aria-hidden', 'true'); ol.appendChild(li); return;
       }
       num++;
       if (S.numbered) { const n = document.createElement('span'); n.className = 'n'; n.textContent = num; li.appendChild(n); }
@@ -1113,7 +1111,7 @@ html, body { margin: 0; background: #fff; }
 .sheet li { white-space: nowrap; display: flex; align-items: baseline; gap: .35em; }
 .sheet.caps li, .sheet.caps .band { text-transform: uppercase; }
 .sheet li .n { font-family: "Archivo", system-ui, sans-serif; font-weight: 500; font-size: .42em; color: #674533; min-width: 1.8em; text-align: right; }
-.sheet li.encore { display: block; font-family: "Archivo", system-ui, sans-serif; font-weight: 500; font-size: .34em; letter-spacing: .3em; text-transform: uppercase; color: #674533; padding: 1.1em 0 .5em; }
+.sheet li.encore { display: block; height: 0; border-top: .05em solid #674533; margin: .4em 0; }
 .sheet li .sn { font-family: "Archivo", system-ui, sans-serif; font-weight: 500; font-size: .36em; color: #674533; text-transform: none; padding-left: .4em; }
 .hint { font: 14px system-ui, sans-serif; color: #674533; text-align: center; padding: 12px; }
 @media screen { body { background: #e8e4da; } .page { box-shadow: 0 2px 14px rgba(0,0,0,.15); margin: 0 auto 24px; } }
