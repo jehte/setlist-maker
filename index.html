@@ -53,6 +53,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; margin-bottom: 40px; }
 .top select { border: 0; background: none; padding: 0; font-weight: 600; font-size: 15px; cursor: pointer; max-width: 100%; min-width: 0; }
 .top select:focus { outline: none; text-decoration: underline; text-underline-offset: 4px; }
+/* the opened list is drawn by the system; give it the page colors so text stays readable */
+.top select option { background: var(--bg); color: var(--fg); font-weight: 400; }
+.top select optgroup { background: var(--bg); color: var(--muted); font-style: normal; font-weight: 600; }
 .top .actions { display: flex; gap: 16px; margin-left: auto; align-items: baseline; }
 .status { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
